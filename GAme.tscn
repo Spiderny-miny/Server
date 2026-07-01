@@ -1,0 +1,151 @@
+[gd_scene load_steps=2 format=3 uid="uid://b8x3k5m2y7q1r"]
+
+[gd_resource type="GDScript" id="GDScript_4a36c"]
+script/source = "extends Control
+
+# Your explicit Firebase Realtime Database URL
+const FIREBASE_URL = \"https://game-server-4a36c-default-rtdb.firebaseio.com/game_events.json\"
+
+@onready var http_request: HTTPRequest = $FirebaseHTTPRequest
+@onready var timer: Timer = $Timer
+@onready var event_label: Label = $EventLabel
+@onready var status_label: Label = $StatusLabel
+
+func _ready() -> void:
+	# UI Setup
+	event_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	event_label.text = \"Waiting for initial Discord data payload...\"
+	
+	status_label.text = \"STATUS: INITIALIZING...\"
+	status_label.add_theme_color_override(\"font_color\", Color.YELLOW)
+	
+	# Connect signals using Godot 4 syntax
+	http_request.request_completed.connect(_on_request_completed)
+	timer.timeout.connect(_on_timer_timeout)
+	
+	# Run the first check immediately
+	_on_timer_timeout()
+
+func _on_timer_timeout() -> void:
+	# Update status label to show it is actively sending a request right now
+	status_label.text = \"STATUS: ONLINE (FETCHING NEW DATA...)\"
+	status_label.add_theme_color_override(\"font_color\", Color.CYAN)
+	
+	# Fetch the database contents tracking our Discord commands
+	var error = http_request.request(FIREBASE_URL)
+	if error != OK:
+		set_offline_status(\"Failed to initiate HTTP request.\")
+
+func _on_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
+	# Check if the network request actually succeeded (result 0 means standard success)
+	if result != HTTPRequest.RESULT_SUCCESS:
+		set_offline_status(\"Network Error (No Internet/DNS issue)\")
+		return
+
+	# 200 means a successful server response from Firebase
+	if response_code == 200:
+		# Update status to show it successfully checked and is now waiting for the next cycle
+		status_label.text = \"STATUS: ONLINE (WAITING FOR NEXT REQUEST TIMER...)\"
+		status_label.add_theme_color_override(\"font_color\", Color.GREEN)
+		
+		var raw_text: String = body.get_string_from_utf8()
+		
+		# If the database path is completely empty (null)
+		if raw_text == \"null\" or raw_text == \"{}\":
+			event_label.text = \"Database Connected: No events sent yet.\\nUse /starttext or /startrain in Discord!\"
+			return
+			
+		var json = JSON.new()
+		var error = json.parse(raw_text)
+		
+		if error == OK:
+			var data = json.get_data()
+			if data is Dictionary:
+				process_game_events(data)
+		else:
+			print(\"JSON Parsing Error: \", json.get_error_message())
+	else:
+		# If Firebase returns a 404, 403, or 500 error code
+		set_offline_status(\"Firebase Error Code: \" + str(response_code))
+
+func set_offline_status(reason: String) -> void:
+	status_label.text = \"STATUS: OFFLINE (\" + reason + \")\"
+	status_label.add_theme_color_override(\"font_color\", Color.RED)
+	event_label.text = \"Connection lost. Retrying when timer ticks...\"
+
+func process_game_events(data: Dictionary) -> void:
+	var display_text: String = \"=== DISCORD LIVE EVENTS ===\\n\\n\"
+	
+	# 1. Parse the /starttext node
+	if data.has(\"abuse\"):
+		var abuse_data = data[\"abuse\"]
+		if abuse_data is Dictionary:
+			var text_content = abuse_data.get(\"text\", \"No text provided\")
+			var admin_name = abuse_data.get(\"admin\", \"Unknown Admin\")
+			
+			display_text += \"📢 TEXT EVENT:\\n\"
+			display_text += \"• Admin Abuse Started By: \" + str(admin_name) + \"\\n\"
+			display_text += \"• Message: \\\"\" + str(text_content) + \"\\\"\\n\\n\"
+	
+	# 2. Parse the /startrain node
+	if data.has(\"rain\"):
+		var rain_data = data[\"rain\"]
+		if rain_data is Dictionary:
+			var rain_type = rain_data.get(\"type\", \"Normal\")
+			var triggered_by = rain_data.get(\"triggered_by\", \"Unknown\")
+			
+			display_text += \"🌧️ WEATHER EVENT:\\n\"
+			display_text += \"• Rain Type: \" + str(rain_type) + \"\\n\"
+			display_text += \"• Summoned By: \" + str(triggered_by) + \"\\n\\n\"
+			
+			if rain_type == \"Emerald\":
+				trigger_emerald_rain_effect()
+
+	event_label.text = display_text
+
+func trigger_emerald_rain_effect() -> void:
+	pass
+"
+
+[node name="DiscordBridge" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_4a36c")
+
+[node name="StatusLabel" type="Label" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 50.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 18
+text = "STATUS: INITIALIZING..."
+vertical_alignment = 1
+
+[node name="EventLabel" type="Label" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 70.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 16
+text = "Waiting for initial Discord data payload..."
+autowrap_mode = 2
+
+[node name="FirebaseHTTPRequest" type="HTTPRequest" parent="."]
+
+[node name="Timer" type="Timer" parent="."]
+wait_time = 2.0
+autostart = true
