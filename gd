@@ -1,48 +1,67 @@
 extends Node
 
-var server := TCPServer.new()
-var port := 8080
+@onready var http_request: HTTPRequest = $HTTPRequest
+
+# Configuration constants matching your GitHub account assets
+const GIST_ID = "8802dd903e8053cb51aed85dda77253f"
+const GITHUB_TOKEN = "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"
+
+# Dynamic URL path construction
+const RAW_GIST_URL = "https://gist.githubusercontent.com/raw/" + GIST_ID + "/commands.json"
+const API_URL = "https://api.github.com/gists/" + GIST_ID
+
+const CHECK_INTERVAL = 3.5 # Loop timeframe check (in seconds)
+var clearing_mailbox = false
 
 func _ready() -> void:
-	# Spin up our custom engine server port
-	if server.listen(port) == OK:
-		print("Godot Admin Server started successfully on port: ", port)
-	else:
-		print("Failed to start Godot Admin Server. Check if port is occupied.")
-
-func _process(_delta: float) -> void:
-	# Continuously monitor if BDFD is trying to connect
-	if server.is_connection_available():
-		var peer: StreamPeerTCP = server.take_connection()
-		handle_discord_request(peer)
-
-func handle_discord_request(peer: StreamPeerTCP) -> void:
-	# Brief buffer latency delay for network packet assembly
-	OS.delay_msec(60) 
-	var available_bytes := peer.get_available_bytes()
+	# Wire up network signals 
+	http_request.request_completed.connect(_on_request_completed)
 	
-	if available_bytes > 0:
-		var request_string := peer.get_string(available_bytes)
+	# Launch our looping checker function
+	check_mailbox_loop()
+
+func check_mailbox_loop() -> void:
+	while true:
+		if not clearing_mailbox:
+			# Pull down raw plain text script configuration straight from GitHub
+			http_request.request(RAW_GIST_URL)
+		await get_tree().create_timer(CHECK_INTERVAL).timeout
+
+func _on_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
+	if clearing_mailbox:
+		# Mailbox network drop successfully initialized, resume main checking cycle
+		clearing_mailbox = false
+		return
 		
-		# Locate structural JSON bracket points from the raw HTTP stream
-		var json_start := request_string.find("{")
-		var json_end := request_string.rfind("}")
+	if response_code == 200:
+		var json := JSON.new()
+		var parse_result := json.parse(body.get_string_from_utf8())
 		
-		if json_start != -1 and json_end != -1:
-			var json_body := request_string.substr(json_start, (json_end - json_start) + 1)
-			
-			var json := JSON.new()
-			var parse_result := json.parse(json_body)
-			
-			if parse_result == OK:
-				var data: Dictionary = json.get_data()
-				execute_admin_command(data)
+		if parse_result == OK:
+			var commands = json.get_data()
+			if commands is Array and commands.size() > 0:
+				# Instantly drop content on GitHub first to prevent running command multiple times
+				clear_github_mailbox()
 				
-				# Respond back with HTTP 200 OK status to keep BDFD happy
-				var response := "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"success\"}"
-				peer.put_data(response.to_utf8_buffer())
-				
-	peer.disconnect_from_host()
+				# Iterate and trigger arrays sequentially
+				for command_data in commands:
+					execute_admin_command(command_data)
+
+func clear_github_mailbox() -> void:
+	clearing_mailbox = true
+	var custom_headers := [
+		"Authorization: token " + GITHUB_TOKEN,
+		"User-Agent: GodotEngine",
+		"Content-Type: application/json"
+	]
+	var payload := {
+		"files": {
+			"commands.json": {
+				"content": "[]"
+			}
+		}
+	}
+	http_request.request(API_URL, custom_headers, HTTPClient.METHOD_PATCH, JSON.stringify(payload))
 
 func execute_admin_command(data: Dictionary) -> void:
 	var command_type: String = data.get("commandType", "")
@@ -51,11 +70,10 @@ func execute_admin_command(data: Dictionary) -> void:
 	
 	match command_type:
 		"starttext":
-			var final_output := "%s: %s" % [sender, text_data]
-			print(final_output) 
-			# UI implementation note: hook up your game HUD layout nodes here 
-			# to flash final_output to the players!
+			var display_msg := "%s: %s" % [sender, text_data]
+			print(display_msg)
+			# Add UI logic code here to display the string text on players' viewports
 			
 		"startrain":
-			print("Admin command received! Spawning sky drop sequence: ", text_data)
-			# Event loop note: run your item generation node loop instances here!
+			print("Starting admin command sequence drop! Target material: ", text_data)
+			# Add event spawn loop execution code here
