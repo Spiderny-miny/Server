@@ -4,7 +4,7 @@ extends Node
 
 # Configuration constants matching your GitHub account assets
 const GIST_ID = "8802dd903e8053cb51aed85dda77253f"
-const GITHUB_TOKEN = "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"
+const GITHUB_TOKEN = "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"
 
 # Dynamic URL path construction
 const RAW_GIST_URL = "https://gist.githubusercontent.com/raw/" + GIST_ID + "/commands.json"
