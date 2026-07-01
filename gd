@@ -1,6 +1,6 @@
 extends Node
 
-var firebase_url = "https://YOUR-PROJECT-ID.firebaseio.com/godot_commands.json"
+var firebase_url = "https://game-server-4a36c-default-rtdb.firebaseio.com/godot_commands.json"
 
 func _on_Timer_timeout():
     # Ask Firebase for the latest commands every time the timer ticks
