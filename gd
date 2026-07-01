@@ -1,4 +1,4 @@
-extends Node
+extends Control
 
 var firebase_url = "https://game-server-4a36c-default-rtdb.firebaseio.com/godot_commands.json"
 
